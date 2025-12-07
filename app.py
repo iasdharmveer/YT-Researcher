@@ -1053,6 +1053,53 @@ with toolbox_tabs[4]:
                                 else:
                                     st.warning("No public tags on this video")
                                 
+                                # ==================== VIDEO TRANSCRIPT ====================
+                                st.divider()
+                                st.subheader("📝 Video Transcript")
+                                
+                                with st.spinner("Extracting transcript..."):
+                                    transcript_result = get_video_transcript(video_id)
+                                    
+                                    if isinstance(transcript_result, list):
+                                        if transcript_result:
+                                            # Format transcript text
+                                            try:
+                                                text_parts = []
+                                                for segment in transcript_result:
+                                                    if isinstance(segment, dict):
+                                                        text_parts.append(segment.get('text', ''))
+                                                    elif hasattr(segment, 'text'):
+                                                        text_parts.append(str(segment.text))
+                                                    else:
+                                                        text_parts.append(str(segment))
+                                                
+                                                full_transcript = ' '.join(text_parts).replace('\n', ' ')
+                                                
+                                                # Show transcript stats
+                                                word_count = len(full_transcript.split())
+                                                st.success(f"✅ Transcript extracted successfully! ({word_count} words)")
+                                                
+                                                # Show expandable transcript
+                                                with st.expander("📖 View Full Transcript", expanded=False):
+                                                    st.text_area("Transcript", value=full_transcript, height=300, disabled=True)
+                                                
+                                                # Show cleaned/shortened version
+                                                st.markdown("**Preview (first 500 chars):**")
+                                                st.info(full_transcript[:500] + "..." if len(full_transcript) > 500 else full_transcript)
+                                                
+                                                # Add to session state for export
+                                                st.session_state['last_transcript'] = full_transcript
+                                                
+                                            except Exception as fmt_err:
+                                                st.error(f"Error formatting transcript: {fmt_err}")
+                                        else:
+                                            st.warning("No transcript content found for this video")
+                                    elif isinstance(transcript_result, str):
+                                        # It's an error message
+                                        st.warning(f"Transcript not available: {transcript_result}")
+                                    else:
+                                        st.warning(f"Unexpected transcript format: {type(transcript_result)}")
+                                
                                 # ==================== FETCH CHANNEL'S POPULAR VIDEOS ====================
                                 st.divider()
                                 st.subheader(f"🔥 Top 50 Videos from {vid_info.get('channel', 'this channel')}")
