@@ -931,17 +931,26 @@ with toolbox_tabs[4]:
         
         # --- Video Analysis ---
         with intel_subtabs[0]:
-            st.markdown("**Analyze any YouTube video's performance**")
+            st.markdown("**Analyze any YouTube video and explore the channel's top content**")
             
-            video_url = st.text_input("YouTube Video URL", placeholder="https://www.youtube.com/watch?v=...")
+            video_url = st.text_input("YouTube Video URL", placeholder="https://www.youtube.com/watch?v=...", key="video_analysis_url")
             
-            if st.button("🔍 Analyze Video", key="analyze_video") and video_url:
+            # Date filter
+            col_date, col_sort = st.columns(2)
+            with col_date:
+                default_date = datetime.date.today() - datetime.timedelta(days=365)
+                video_start_date = st.date_input("Videos Published After", value=default_date, key="video_analysis_date")
+            with col_sort:
+                video_sort_options = ["views", "date", "engagement"]
+                video_sort_by = st.selectbox("Sort Videos By", video_sort_options, index=0, key="video_analysis_sort")
+            
+            if st.button("🔍 Analyze Video & Channel", key="analyze_video_btn") and video_url:
                 video_id_match = re.search(r'(?:v=|/)([a-zA-Z0-9_-]{11})', video_url)
                 
                 if video_id_match:
                     video_id = video_id_match.group(1)
                     
-                    with st.spinner("Analyzing video..."):
+                    with st.spinner("Analyzing video and fetching channel data..."):
                         try:
                             youtube = build('youtube', 'v3', developerKey=api_key)
                             result = analyze_video_performance(youtube, video_id)
@@ -972,7 +981,16 @@ with toolbox_tabs[4]:
                                 
                                 # Channel Context
                                 chan = result.get("channel_context", {})
-                                st.info(f"**Channel has {chan.get('channel_subscribers', 0):,} subscribers** | Expected views: ~{chan.get('expected_views', 0):,}")
+                                channel_id = vid_info.get("channel_id", "")
+                                
+                                st.divider()
+                                st.subheader(f"📺 Channel Analysis: {vid_info.get('channel', 'Unknown')}")
+                                
+                                chan_cols = st.columns(4)
+                                chan_cols[0].metric("Subscribers", f"{chan.get('channel_subscribers', 0):,}")
+                                chan_cols[1].metric("Expected Views", f"{chan.get('expected_views', 0):,}")
+                                chan_cols[2].metric("Total Videos", f"{chan.get('total_videos', 0):,}" if chan.get('total_videos') else "N/A")
+                                chan_cols[3].metric("Avg View Performance", f"{metrics.get('view_to_sub_ratio', 0):.2f}x subs")
                                 
                                 # Title Analysis
                                 st.divider()
@@ -993,6 +1011,73 @@ with toolbox_tabs[4]:
                                     st.code(", ".join(tags[:20]), language=None)
                                 else:
                                     st.warning("No public tags on this video")
+                                
+                                # ==================== FETCH CHANNEL'S POPULAR VIDEOS ====================
+                                st.divider()
+                                st.subheader(f"🔥 Top 50 Videos from {vid_info.get('channel', 'this channel')}")
+                                st.caption(f"Sorted by: {video_sort_by} | After: {video_start_date}")
+                                
+                                with st.spinner("Fetching channel's popular videos..."):
+                                    # Get channel ID from the video
+                                    if channel_id:
+                                        popular_result = get_channel_popular_videos(
+                                            youtube=youtube,
+                                            channel_id=channel_id,
+                                            max_results=50,
+                                            order_by=video_sort_by,
+                                            start_date=str(video_start_date)
+                                        )
+                                        
+                                        if "error" in popular_result:
+                                            st.warning(f"Could not fetch channel videos: {popular_result.get('error')}")
+                                        else:
+                                            # Channel Summary Stats
+                                            summary = popular_result.get("summary", {})
+                                            if summary:
+                                                sum_cols = st.columns(4)
+                                                sum_cols[0].metric("Total Views", f"{summary.get('total_views', 0):,}")
+                                                sum_cols[1].metric("Total Likes", f"{summary.get('total_likes', 0):,}")
+                                                sum_cols[2].metric("Avg Views", f"{summary.get('avg_views', 0):,}")
+                                                sum_cols[3].metric("Avg Engagement", f"{summary.get('avg_engagement', 0)}%")
+                                            
+                                            # Video List
+                                            videos = popular_result.get("videos", [])
+                                            
+                                            if videos:
+                                                # Create DataFrame for display
+                                                display_data = []
+                                                for i, v in enumerate(videos, 1):
+                                                    display_data.append({
+                                                        "Rank": i,
+                                                        "Title": v['title'][:50] + "..." if len(v['title']) > 50 else v['title'],
+                                                        "Views": f"{v['views']:,}",
+                                                        "Likes": f"{v['likes']:,}",
+                                                        "Engagement": f"{v['engagement_rate']}%",
+                                                        "Published": v['published'][:10] if v.get('published') else "N/A"
+                                                    })
+                                                
+                                                videos_df = pd.DataFrame(display_data)
+                                                st.dataframe(videos_df, use_container_width=True, hide_index=True)
+                                                
+                                                # Common Tags Analysis
+                                                st.divider()
+                                                st.subheader("🏷️ Common Tags Across Channel Videos")
+                                                
+                                                all_tags = []
+                                                for v in videos:
+                                                    all_tags.extend([t.lower() for t in v.get('tags', [])])
+                                                
+                                                if all_tags:
+                                                    from collections import Counter
+                                                    tag_counts = Counter(all_tags)
+                                                    top_tags = [f"{tag} ({count})" for tag, count in tag_counts.most_common(20)]
+                                                    st.write(" • ".join(top_tags))
+                                                else:
+                                                    st.info("No tags data available from videos")
+                                            else:
+                                                st.info("No videos found in the specified date range")
+                                    else:
+                                        st.warning("Could not determine channel ID from video")
                                 
                         except HttpError as e:
                             st.error(f"YouTube API Error: {e}")
@@ -1285,7 +1370,6 @@ with toolbox_tabs[4]:
                 else:
                     st.warning("Please enter a channel handle or video URL")
 
-
 @st.cache_data(ttl=3600)
 def resolve_channel_id(_youtube, query):
     """Robustly resolve channel ID from Handle or Name."""
@@ -1310,425 +1394,431 @@ def resolve_channel_id(_youtube, query):
         
     return None
 
-if st.button("🚀 Start Deep Analysis", type="primary"):
-    if not api_key:
-        st.error("⚠️ API Key is required to run the engine.")
-    else:
-        try:
-            youtube = build('youtube', 'v3', developerKey=api_key)
-            status_container = st.empty()
+# Move to Research Engine tab context
+with toolbox_tabs[0]:
+    if st.button("🚀 Start Deep Analysis", type="primary", key="research_engine_btn"):
+        if not api_key:
+            st.error("⚠️ API Key is required to run the engine.")
+        else:
+            try:
+                youtube = build('youtube', 'v3', developerKey=api_key)
+                status_container = st.empty()
             
-            # --- Phase 1: Search ---
-            status_container.info(f"📡 Phase 1: Scanning Network ({search_mode})...")
+                # --- Phase 1: Search ---
+                status_container.info(f"📡 Phase 1: Scanning Network ({search_mode})...")
             
-            video_ids = []
+                video_ids = []
             
-            if search_mode == "Keyword Search":
-                video_type_val = video_type[0] if video_type else 'any'
-                video_duration_val = video_duration[0] if video_duration else 'any'
-                published_after_rfc = f"{published_after}T00:00:00Z"
+                if search_mode == "Keyword Search":
+                    video_type_val = video_type[0] if video_type else 'any'
+                    video_duration_val = video_duration[0] if video_duration else 'any'
+                    published_after_rfc = f"{published_after}T00:00:00Z"
                 
-                search_params = {
-                    'q': search_query,
-                    'part': 'id,snippet',
-                    'maxResults': max_results,
-                    'regionCode': region_code,
-                    'relevanceLanguage': relevance_lang,
-                    'order': order_by,
-                    'publishedAfter': published_after_rfc,
-                    'type': 'video', 
-                    'safeSearch': safe_search,
-                    'videoType': video_type_val if video_type_val != 'any' else None,
-                    'videoDuration': video_duration_val if video_duration_val != 'any' else None,
-                    'videoDuration': video_duration_val if video_duration_val != 'any' else None,
-                    'videoLicense': 'creativeCommon' if creative_commons else None,
-                    'videoCategoryId': video_category_id
-                }
-                # Clean None values
-                search_params = {k: v for k, v in search_params.items() if v is not None}
+                    # Validate order_by to ensure it's a valid YouTube API value
+                    valid_order_values = ["relevance", "date", "rating", "title", "videoCount", "viewCount"]
+                    safe_order_by = order_by if order_by in valid_order_values else "viewCount"
                 
-                search_response = youtube.search().list(**search_params).execute()
-                video_ids = [item['id']['videoId'] for item in search_response.get('items', [])]
+                    search_params = {
+                        'q': search_query,
+                        'part': 'id,snippet',
+                        'maxResults': max_results,
+                        'regionCode': region_code,
+                        'relevanceLanguage': relevance_lang,
+                        'order': safe_order_by,
+                        'publishedAfter': published_after_rfc,
+                        'type': 'video', 
+                        'safeSearch': safe_search,
+                        'videoType': video_type_val if video_type_val != 'any' else None,
+                        'videoDuration': video_duration_val if video_duration_val != 'any' else None,
+                        'videoDuration': video_duration_val if video_duration_val != 'any' else None,
+                        'videoLicense': 'creativeCommon' if creative_commons else None,
+                        'videoCategoryId': video_category_id
+                    }
+                    # Clean None values
+                    search_params = {k: v for k, v in search_params.items() if v is not None}
+                
+                    search_response = youtube.search().list(**search_params).execute()
+                    video_ids = [item['id']['videoId'] for item in search_response.get('items', [])]
             
-            else: # Channel Deep Dive
-                target_channel_id = resolve_channel_id(youtube, channel_name_input)
+                else: # Channel Deep Dive
+                    target_channel_id = resolve_channel_id(youtube, channel_name_input)
                 
-                if not target_channel_id:
-                     st.error(f"Channel '{channel_name_input}' not found. Please double check the handle (e.g. @MrBeast).")
+                    if not target_channel_id:
+                         st.error(f"Channel '{channel_name_input}' not found. Please double check the handle (e.g. @MrBeast).")
+                    else:
+                    
+                        # Get Uploads Playlist
+                        ch_resp = youtube.channels().list(id=target_channel_id, part='contentDetails').execute()
+                        uploads_id = ch_resp['items'][0]['contentDetails']['relatedPlaylists']['uploads']
+                    
+                        # Fetch Items from Playlist
+                        pl_resp = youtube.playlistItems().list(
+                            playlistId=uploads_id,
+                            part='contentDetails,snippet',
+                            maxResults=max_results
+                        ).execute()
+                    
+                        # Filter by date manually for playlist items
+                        for item in pl_resp.get('items', []):
+                             vid_pub = pd.to_datetime(item['snippet']['publishedAt']).tz_convert(None)
+                             if vid_pub >= pd.to_datetime(published_after):
+                                 video_ids.append(item['contentDetails']['videoId'])
+
+                if not video_ids:
+                    status_container.warning("No results found. Adjust filters.")
                 else:
-                    
-                    # Get Uploads Playlist
-                    ch_resp = youtube.channels().list(id=target_channel_id, part='contentDetails').execute()
-                    uploads_id = ch_resp['items'][0]['contentDetails']['relatedPlaylists']['uploads']
-                    
-                    # Fetch Items from Playlist
-                    pl_resp = youtube.playlistItems().list(
-                        playlistId=uploads_id,
-                        part='contentDetails,snippet',
-                        maxResults=max_results
+                    # --- Phase 2: Enrichment (Batching) ---
+                    status_container.info(f"🛰️ Phase 2: Enriching data for {len(video_ids)} videos...")
+                
+                    # Videos List (Batch) - requesting MORE parts
+                    videos_response = youtube.videos().list(
+                        part='snippet,statistics,contentDetails,topicDetails,status',
+                        id=','.join(video_ids)
                     ).execute()
+                
+                    video_items = videos_response.get('items', [])
+                
+                    # Channels List (Batch) - requesting MORE parts
+                    channel_ids = list(set([v['snippet']['channelId'] for v in video_items]))
+                    channels_response = youtube.channels().list(
+                        part='statistics,brandingSettings,topicDetails',
+                        id=','.join(channel_ids)
+                    ).execute()
+                
+                    channel_map = {c['id']: c for c in channels_response.get('items', [])}
+                
+                    # --- Phase 3 & 4: Logic & Content Scraping ---
+                    processed_rows = []
+                
+                    progress_bar = st.progress(0)
+                
+                    for idx, vid in enumerate(video_items):
+                        status_container.text(f"Processing {idx+1}/{len(video_items)}: {vid['snippet']['title'][:40]}...")
+                        progress_bar.progress((idx + 1) / len(video_items))
                     
-                    # Filter by date manually for playlist items
-                    for item in pl_resp.get('items', []):
-                         vid_pub = pd.to_datetime(item['snippet']['publishedAt']).tz_convert(None)
-                         if vid_pub >= pd.to_datetime(published_after):
-                             video_ids.append(item['contentDetails']['videoId'])
+                        # Data Extraction
+                        snippet = vid['snippet']
+                        stats = vid['statistics']
+                        content = vid['contentDetails']
+                        topic_details = vid.get('topicDetails', {})
+                        status = vid.get('status', {})
+                        content_rating = content.get('contentRating', {})
+                        vid_id = vid['id']
+                    
+                        # Metrics
+                        views = int(stats.get('viewCount', 0))
+                        likes = int(stats.get('likeCount', 0))
+                        comments = int(stats.get('commentCount', 0))
+                    
+                        # --- Post-Processing Filters ---
+                        if views < min_view_count:
+                            continue
+                    
+                        # Channel Context
+                        channel_id = snippet['channelId']
+                        channel_data = channel_map.get(channel_id, {})
+                        channel_stats = channel_data.get('statistics', {})
+                        channel_branding = channel_data.get('brandingSettings', {})
+                        channel_topics = channel_data.get('topicDetails', {})
+                    
+                        subs = int(channel_stats.get('subscriberCount', 1))
+                        if subs == 0: subs = 1
+                    
+                        # Detailed Channel Info
+                        channel_keywords = channel_branding.get('channel', {}).get('keywords', '')
+                        channel_topic_categories = ", ".join([t.split('/')[-1] for t in channel_topics.get('topicCategories', [])])
 
-            if not video_ids:
-                status_container.warning("No results found. Adjust filters.")
-            else:
-                # --- Phase 2: Enrichment (Batching) ---
-                status_container.info(f"🛰️ Phase 2: Enriching data for {len(video_ids)} videos...")
-                
-                # Videos List (Batch) - requesting MORE parts
-                videos_response = youtube.videos().list(
-                    part='snippet,statistics,contentDetails,topicDetails,status',
-                    id=','.join(video_ids)
-                ).execute()
-                
-                video_items = videos_response.get('items', [])
-                
-                # Channels List (Batch) - requesting MORE parts
-                channel_ids = list(set([v['snippet']['channelId'] for v in video_items]))
-                channels_response = youtube.channels().list(
-                    part='statistics,brandingSettings,topicDetails',
-                    id=','.join(channel_ids)
-                ).execute()
-                
-                channel_map = {c['id']: c for c in channels_response.get('items', [])}
-                
-                # --- Phase 3 & 4: Logic & Content Scraping ---
-                processed_rows = []
-                
-                progress_bar = st.progress(0)
-                
-                for idx, vid in enumerate(video_items):
-                    status_container.text(f"Processing {idx+1}/{len(video_items)}: {vid['snippet']['title'][:40]}...")
-                    progress_bar.progress((idx + 1) / len(video_items))
+                        # Calculated Intelligence
+                        virality_score = round(views / subs, 2)
                     
-                    # Data Extraction
-                    snippet = vid['snippet']
-                    stats = vid['statistics']
-                    content = vid['contentDetails']
-                    topic_details = vid.get('topicDetails', {})
-                    status = vid.get('status', {})
-                    content_rating = content.get('contentRating', {})
-                    vid_id = vid['id']
+                        if virality_score < min_virality_score:
+                            continue
                     
-                    # Metrics
-                    views = int(stats.get('viewCount', 0))
-                    likes = int(stats.get('likeCount', 0))
-                    comments = int(stats.get('commentCount', 0))
+                        engagement_rate = round(((likes + comments) / views * 100), 2) if views > 0 else 0
                     
-                    # --- Post-Processing Filters ---
-                    if views < min_view_count:
-                        continue
+                        # AI Flag
+                        full_text = f"{snippet['title']} {snippet['description']} {' '.join(snippet.get('tags', []))}"
+                        is_ai_content = check_ai_content(full_text, ai_keywords)
                     
-                    # Channel Context
-                    channel_id = snippet['channelId']
-                    channel_data = channel_map.get(channel_id, {})
-                    channel_stats = channel_data.get('statistics', {})
-                    channel_branding = channel_data.get('brandingSettings', {})
-                    channel_topics = channel_data.get('topicDetails', {})
-                    
-                    subs = int(channel_stats.get('subscriberCount', 1))
-                    if subs == 0: subs = 1
-                    
-                    # Detailed Channel Info
-                    channel_keywords = channel_branding.get('channel', {}).get('keywords', '')
-                    channel_topic_categories = ", ".join([t.split('/')[-1] for t in channel_topics.get('topicCategories', [])])
+                        # Duration
+                        duration_iso = content.get('duration', 'PT0S')
+                        duration_seconds = isodate.parse_duration(duration_iso).total_seconds()
+                        duration_minutes = round(duration_seconds / 60, 2)
 
-                    # Calculated Intelligence
-                    virality_score = round(views / subs, 2)
-                    
-                    if virality_score < min_virality_score:
-                        continue
-                    
-                    engagement_rate = round(((likes + comments) / views * 100), 2) if views > 0 else 0
-                    
-                    # AI Flag
-                    full_text = f"{snippet['title']} {snippet['description']} {' '.join(snippet.get('tags', []))}"
-                    is_ai_content = check_ai_content(full_text, ai_keywords)
-                    
-                    # Duration
-                    duration_iso = content.get('duration', 'PT0S')
-                    duration_seconds = isodate.parse_duration(duration_iso).total_seconds()
-                    duration_minutes = round(duration_seconds / 60, 2)
+                        # Extra Context
+                        video_topics = ", ".join([t.split('/')[-1] for t in topic_details.get('topicCategories', [])])
+                        music_detected = detect_music_from_description(snippet['description'])
 
-                    # Extra Context
-                    video_topics = ", ".join([t.split('/')[-1] for t in topic_details.get('topicCategories', [])])
-                    music_detected = detect_music_from_description(snippet['description'])
-
-                    # Transcript
-                    transcript_text = "N/A"
-                    if enable_transcript:
-                        # Use the robust helper module
-                        raw_transcript = get_video_transcript(vid_id)
+                        # Transcript
+                        transcript_text = "N/A"
+                        if enable_transcript:
+                            # Use the robust helper module
+                            raw_transcript = get_video_transcript(vid_id)
                         
-                        if isinstance(raw_transcript, list):
-                            if raw_transcript:
-                                # Non-empty list = Success - format manually (dicts with 'text' key)
-                                try:
-                                    # Extract text from each segment (handles both dicts and objects)
-                                    text_parts = []
-                                    for segment in raw_transcript:
-                                        if isinstance(segment, dict):
-                                            text_parts.append(segment.get('text', ''))
-                                        elif hasattr(segment, 'text'):
-                                            text_parts.append(str(segment.text))
-                                        else:
-                                            text_parts.append(str(segment))
-                                    transcript_text = ' '.join(text_parts).replace('\n', ' ')
-                                except Exception as fmt_err:
-                                    transcript_text = f"Format Error: {fmt_err}"
+                            if isinstance(raw_transcript, list):
+                                if raw_transcript:
+                                    # Non-empty list = Success - format manually (dicts with 'text' key)
+                                    try:
+                                        # Extract text from each segment (handles both dicts and objects)
+                                        text_parts = []
+                                        for segment in raw_transcript:
+                                            if isinstance(segment, dict):
+                                                text_parts.append(segment.get('text', ''))
+                                            elif hasattr(segment, 'text'):
+                                                text_parts.append(str(segment.text))
+                                            else:
+                                                text_parts.append(str(segment))
+                                        transcript_text = ' '.join(text_parts).replace('\n', ' ')
+                                    except Exception as fmt_err:
+                                        transcript_text = f"Format Error: {fmt_err}"
+                                else:
+                                    # Empty list = Valid extraction but no content found
+                                    transcript_text = "No transcript content found"
+                            elif isinstance(raw_transcript, str):
+                                # It returned an error string
+                                transcript_text = raw_transcript
                             else:
-                                # Empty list = Valid extraction but no content found
-                                transcript_text = "No transcript content found"
-                        elif isinstance(raw_transcript, str):
-                            # It returned an error string
-                            transcript_text = raw_transcript
-                        else:
-                             transcript_text = f"Format Error: {type(raw_transcript)}"
+                                 transcript_text = f"Format Error: {type(raw_transcript)}"
 
-                    # OCR
-                    ocr_text = "N/A"
-                    if enable_ocr:
-                        try:
-                            thumb_url = snippet['thumbnails'].get('high', snippet['thumbnails'].get('default'))['url']
-                            ocr_text = get_ocr_reader().readtext(thumb_url, detail=0)
-                            ocr_text = " ".join(ocr_text)
-                        except:
-                            ocr_text = "OCR Failed"
+                        # OCR
+                        ocr_text = "N/A"
+                        if enable_ocr:
+                            try:
+                                thumb_url = snippet['thumbnails'].get('high', snippet['thumbnails'].get('default'))['url']
+                                ocr_text = get_ocr_reader().readtext(thumb_url, detail=0)
+                                ocr_text = " ".join(ocr_text)
+                            except:
+                                ocr_text = "OCR Failed"
                             
                             
-                    processed_rows.append({
-                        # 1. Identity
-                        'Video_Title': snippet['title'],
-                        'Video_URL': f"https://www.youtube.com/watch?v={vid_id}",
-                        'Thumbnail_URL': snippet['thumbnails']['high']['url'],
-                        #'Video_ID': vid_id, # Redundant for LLM
+                        processed_rows.append({
+                            # 1. Identity
+                            'Video_Title': snippet['title'],
+                            'Video_URL': f"https://www.youtube.com/watch?v={vid_id}",
+                            'Thumbnail_URL': snippet['thumbnails']['high']['url'],
+                            #'Video_ID': vid_id, # Redundant for LLM
                         
-                        # 2. Performance Metrics
-                        'Virality_Score': virality_score,
-                        'Engagement_Rate': engagement_rate,
-                        'Views': views,
-                        'Likes': likes,
-                        'Comments': comments,
+                            # 2. Performance Metrics
+                            'Virality_Score': virality_score,
+                            'Engagement_Rate': engagement_rate,
+                            'Views': views,
+                            'Likes': likes,
+                            'Comments': comments,
                         
-                        # 3. Channel Context
-                        'Channel_Name': snippet['channelTitle'],
-                        'Subscribers': subs,
-                        'Channel_Keywords': channel_keywords,
-                        #'Channel_Topics': channel_topic_categories, # Often cleaner in Video Topics
+                            # 3. Channel Context
+                            'Channel_Name': snippet['channelTitle'],
+                            'Subscribers': subs,
+                            'Channel_Keywords': channel_keywords,
+                            #'Channel_Topics': channel_topic_categories, # Often cleaner in Video Topics
                         
-                        # 4. Content Metadata
-                        'Publish_Date': snippet['publishedAt'],
-                        'Duration_Minutes': duration_minutes,
-                        'Video_Topics': video_topics,
+                            # 4. Content Metadata
+                            'Publish_Date': snippet['publishedAt'],
+                            'Duration_Minutes': duration_minutes,
+                            'Video_Topics': video_topics,
                         
-                        # Removed Low-Signal Technical Columns for LLM Clarity
-                        # 'Language': snippet.get('defaultAudioLanguage', 'N/A'),
-                        # 'Made_For_Kids': status.get('madeForKids', 'N/A'),
-                        # 'Content_Definition': content.get('definition', 'N/A'),
-                        # 'Content_Rating': str(content_rating) if content_rating else "None",
+                            # Removed Low-Signal Technical Columns for LLM Clarity
+                            # 'Language': snippet.get('defaultAudioLanguage', 'N/A'),
+                            # 'Made_For_Kids': status.get('madeForKids', 'N/A'),
+                            # 'Content_Definition': content.get('definition', 'N/A'),
+                            # 'Content_Rating': str(content_rating) if content_rating else "None",
                         
-                        # 5. AI & Creative
-                        # 'AI_Flag': is_ai_content, # Internal metric, maybe not needed for strategy export
-                        'Background_Music': music_detected,
-                        'Tags': ", ".join(snippet.get('tags', [])),
+                            # 5. AI & Creative
+                            # 'AI_Flag': is_ai_content, # Internal metric, maybe not needed for strategy export
+                            'Background_Music': music_detected,
+                            'Tags': ", ".join(snippet.get('tags', [])),
                         
-                        # 6. Deep Content (The Payload)
-                        'Thumbnail_OCR_Text': ocr_text,
-                        'Description': snippet['description'],
-                        'Transcript_Cleaned': transcript_text
-                    })
+                            # 6. Deep Content (The Payload)
+                            'Thumbnail_OCR_Text': ocr_text,
+                            'Description': snippet['description'],
+                            'Transcript_Cleaned': transcript_text
+                        })
                 
-                if not processed_rows:
-                    st.warning("No videos passed the filters. Try lowering 'Min Virality Score' or 'Min View Count' in the sidebar.")
-                else:
-                    status_container.success(f"Analysis Complete! Generated {len(processed_rows)} strategic insights.")
+                    if not processed_rows:
+                        st.warning("No videos passed the filters. Try lowering 'Min Virality Score' or 'Min View Count' in the sidebar.")
+                    else:
+                        status_container.success(f"Analysis Complete! Generated {len(processed_rows)} strategic insights.")
                 
-                # --- Visualization & Export ---
-                # Condensed Column List for Maximum Signal-to-Noise Ratio
-                ordered_columns = [
-                    'Video_Title', 'Video_URL', 
-                    'Virality_Score', 'Engagement_Rate', 'Views', 
-                    'Channel_Name', 'Subscribers', 'Channel_Keywords', 
-                    'Publish_Date', 'Duration_Minutes', 'Video_Topics', 
-                    'Background_Music', 'Tags',
-                    'Thumbnail_OCR_Text', 'Description', 'Transcript_Cleaned'
-                ]
+                    # --- Visualization & Export ---
+                    # Condensed Column List for Maximum Signal-to-Noise Ratio
+                    ordered_columns = [
+                        'Video_Title', 'Video_URL', 
+                        'Virality_Score', 'Engagement_Rate', 'Views', 
+                        'Channel_Name', 'Subscribers', 'Channel_Keywords', 
+                        'Publish_Date', 'Duration_Minutes', 'Video_Topics', 
+                        'Background_Music', 'Tags',
+                        'Thumbnail_OCR_Text', 'Description', 'Transcript_Cleaned'
+                    ]
                 
-                df = pd.DataFrame(processed_rows)
-                # Ensure all columns exist even if empty data logic missed one (safety)
-                # and reorder
-                df = df.reindex(columns=ordered_columns)
+                    df = pd.DataFrame(processed_rows)
+                    # Ensure all columns exist even if empty data logic missed one (safety)
+                    # and reorder
+                    df = df.reindex(columns=ordered_columns)
                 
-                # Create Tabs
-                tab1, tab2 = st.tabs(["📊 Data Explorer", "🚀 Growth Strategy"])
+                    # Create Tabs
+                    tab1, tab2 = st.tabs(["📊 Data Explorer", "🚀 Growth Strategy"])
                 
-                with tab1:
-                    # 1. Top Performer Card
-                    if not df.empty:
-                        top_video = df.loc[df['Virality_Score'].idxmax()]
-                        st.divider()
-                        col1, col2 = st.columns([1, 2])
-                        with col1:
-                            st.subheader("👑 Top Viral Performer")
-                            st.metric(label="Virality Score", value=f"{top_video['Virality_Score']}x")
-                            st.metric(label="Views", value=f"{int(top_video['Views']):,}")
-                        with col2:
-                            st.markdown(f"**{top_video['Video_Title']}**")
-                            st.markdown(f"*{top_video['Video_URL']}*")
-                            st.info(f"**Why it worked (AI Logic)**: High engagement ({top_video['Engagement_Rate']}%) relative to low subscriber base ({int(top_video['Subscribers']):,}).")
+                    with tab1:
+                        # 1. Top Performer Card
+                        if not df.empty:
+                            top_video = df.loc[df['Virality_Score'].idxmax()]
+                            st.divider()
+                            col1, col2 = st.columns([1, 2])
+                            with col1:
+                                st.subheader("👑 Top Viral Performer")
+                                st.metric(label="Virality Score", value=f"{top_video['Virality_Score']}x")
+                                st.metric(label="Views", value=f"{int(top_video['Views']):,}")
+                            with col2:
+                                st.markdown(f"**{top_video['Video_Title']}**")
+                                st.markdown(f"*{top_video['Video_URL']}*")
+                                st.info(f"**Why it worked (AI Logic)**: High engagement ({top_video['Engagement_Rate']}%) relative to low subscriber base ({int(top_video['Subscribers']):,}).")
 
-                        # 2. Scatter Plot
-                        st.divider()
-                        st.subheader("📈 Viral Velocity Map")
-                        st.scatter_chart(
-                            df,
-                            x='Publish_Date',
-                            y='Views',
-                            color='Virality_Score',
-                            size='Virality_Score',
-                            height=400
-                        )
+                            # 2. Scatter Plot
+                            st.divider()
+                            st.subheader("📈 Viral Velocity Map")
+                            st.scatter_chart(
+                                df,
+                                x='Publish_Date',
+                                y='Views',
+                                color='Virality_Score',
+                                size='Virality_Score',
+                                height=400
+                            )
                         
-                        # 3. Data Table
-                        st.divider()
-                        st.subheader("📊 Strategic Data (Full Context)")
-                        st.dataframe(df) # Showing EVERYTHING so user knows it's there
+                            # 3. Data Table
+                            st.divider()
+                            st.subheader("📊 Strategic Data (Full Context)")
+                            st.dataframe(df) # Showing EVERYTHING so user knows it's there
                         
-                        # 4. Export
-                        csv = df.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label="💾 Download Strategy Context (LLM Ready CSV)",
-                            data=csv,
-                            file_name='strategy_context.csv',
-                            mime='text/csv',
-                            type='primary'
-                        )
+                            # 4. Export
+                            csv = df.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="💾 Download Strategy Context (LLM Ready CSV)",
+                                data=csv,
+                                file_name='strategy_context.csv',
+                                mime='text/csv',
+                                type='primary'
+                            )
                 
-                with tab2:
-                    st.header("🚀 Blueprint for Growth")
-                    st.markdown("Replicate the success of these viral videos with these data-backed strategies.")
+                    with tab2:
+                        st.header("🚀 Blueprint for Growth")
+                        st.markdown("Replicate the success of these viral videos with these data-backed strategies.")
                     
-                    if not df.empty:
-                        # Convert Date for analysis
-                        df['Publish_DT'] = pd.to_datetime(df['Publish_Date'])
-                        df['Day_Of_Week'] = df['Publish_DT'].dt.day_name()
-                        df['Hour_Of_Day'] = df['Publish_DT'].dt.hour
+                        if not df.empty:
+                            # Convert Date for analysis
+                            df['Publish_DT'] = pd.to_datetime(df['Publish_Date'])
+                            df['Day_Of_Week'] = df['Publish_DT'].dt.day_name()
+                            df['Hour_Of_Day'] = df['Publish_DT'].dt.hour
                         
-                        # A. Best Time to Upload
-                        col_a1, col_a2 = st.columns(2)
-                        with col_a1:
-                            st.subheader("📅 Best Day to Upload")
-                            day_counts = df['Day_Of_Week'].value_counts()
-                            st.bar_chart(day_counts)
-                        with col_a2:
-                            st.subheader("⏰ Best Hour to Upload")
-                            hour_counts = df['Hour_Of_Day'].value_counts().sort_index()
-                            st.bar_chart(hour_counts)
+                            # A. Best Time to Upload
+                            col_a1, col_a2 = st.columns(2)
+                            with col_a1:
+                                st.subheader("📅 Best Day to Upload")
+                                day_counts = df['Day_Of_Week'].value_counts()
+                                st.bar_chart(day_counts)
+                            with col_a2:
+                                st.subheader("⏰ Best Hour to Upload")
+                                hour_counts = df['Hour_Of_Day'].value_counts().sort_index()
+                                st.bar_chart(hour_counts)
                             
-                        # B. Title Hooks (N-Grams)
-                        st.divider()
-                        st.subheader("🪝 Winning Title Hooks")
-                        st.caption("Most common 2-word phrases in these viral titles.")
+                            # B. Title Hooks (N-Grams)
+                            st.divider()
+                            st.subheader("🪝 Winning Title Hooks")
+                            st.caption("Most common 2-word phrases in these viral titles.")
                         
-                        all_titles = " ".join(df['Video_Title'].dropna().tolist())
-                        bigrams = get_ngrams(all_titles, 2)
-                        trigrams = get_ngrams(all_titles, 3)
+                            all_titles = " ".join(df['Video_Title'].dropna().tolist())
+                            bigrams = get_ngrams(all_titles, 2)
+                            trigrams = get_ngrams(all_titles, 3)
                         
-                        c_bi = Counter(bigrams).most_common(10)
+                            c_bi = Counter(bigrams).most_common(10)
                         
-                        # Display as metrics
-                        cols = st.columns(5)
-                        for i, (phrase, count) in enumerate(c_bi[:5]):
-                            cols[i].metric(label=f"Rank #{i+1}", value=phrase.title(), delta=f"{count} uses")
+                            # Display as metrics
+                            cols = st.columns(5)
+                            for i, (phrase, count) in enumerate(c_bi[:5]):
+                                cols[i].metric(label=f"Rank #{i+1}", value=phrase.title(), delta=f"{count} uses")
                             
-                        # C. Golden Tags
-                        st.divider()
-                        st.subheader("🏷️ Golden Tags")
-                        st.caption("Topics that consistently appeared in high-performing videos.")
+                            # C. Golden Tags
+                            st.divider()
+                            st.subheader("🏷️ Golden Tags")
+                            st.caption("Topics that consistently appeared in high-performing videos.")
                         
-                        all_tags = []
-                        for tags_str in df['Tags']:
-                            if tags_str:
-                                all_tags.extend([t.strip() for t in tags_str.split(',')])
+                            all_tags = []
+                            for tags_str in df['Tags']:
+                                if tags_str:
+                                    all_tags.extend([t.strip() for t in tags_str.split(',')])
                         
-                        c_tags = Counter(all_tags).most_common(15)
-                        tags_df = pd.DataFrame(c_tags, columns=['Tag', 'Count']).set_index('Tag')
-                        st.bar_chart(tags_df)
+                            c_tags = Counter(all_tags).most_common(15)
+                            tags_df = pd.DataFrame(c_tags, columns=['Tag', 'Count']).set_index('Tag')
+                            st.bar_chart(tags_df)
                         
-                        # D. Ideal Duration
-                        st.divider()
-                        st.subheader("⏳ The Perfect Duration")
-                        avg_duration = df['Duration_Minutes'].mean()
-                        st.metric("Average Viral Duration", f"{avg_duration:.2f} Minutes")
-                        st.bar_chart(df['Duration_Minutes'].value_counts(bins=5).sort_index())
+                            # D. Ideal Duration
+                            st.divider()
+                            st.subheader("⏳ The Perfect Duration")
+                            avg_duration = df['Duration_Minutes'].mean()
+                            st.metric("Average Viral Duration", f"{avg_duration:.2f} Minutes")
+                            st.bar_chart(df['Duration_Minutes'].value_counts(bins=5).sort_index())
                         
-                        # E. Thumbnail Text Density
-                        st.divider()
-                        st.subheader("🖼️ Thumbnail Strategy")
+                            # E. Thumbnail Text Density
+                            st.divider()
+                            st.subheader("🖼️ Thumbnail Strategy")
                         
-                        df['OCR_Word_Count'] = df['Thumbnail_OCR_Text'].apply(lambda x: len(x.split()) if x != "N/A" and x != "OCR Failed" else 0)
-                        avg_ocr_words = df[df['OCR_Word_Count'] > 0]['OCR_Word_Count'].mean()
+                            df['OCR_Word_Count'] = df['Thumbnail_OCR_Text'].apply(lambda x: len(x.split()) if x != "N/A" and x != "OCR Failed" else 0)
+                            avg_ocr_words = df[df['OCR_Word_Count'] > 0]['OCR_Word_Count'].mean()
                         
-                        if pd.isna(avg_ocr_words): avg_ocr_words = 0
+                            if pd.isna(avg_ocr_words): avg_ocr_words = 0
                         
-                        st.info(f"**Insight**: Viral thumbnails in this niche use an average of **{avg_ocr_words:.1f} words** on the image.")
+                            st.info(f"**Insight**: Viral thumbnails in this niche use an average of **{avg_ocr_words:.1f} words** on the image.")
                         
-                        # F. Visual Pattern Grid (NEW)
-                        st.divider()
-                        st.subheader("🎨 Visual Pattern Grid")
-                        st.caption("Top 20 Viral Thumbnails. Look for passing colors, face emotions, and arrow placements.")
+                            # F. Visual Pattern Grid (NEW)
+                            st.divider()
+                            st.subheader("🎨 Visual Pattern Grid")
+                            st.caption("Top 20 Viral Thumbnails. Look for passing colors, face emotions, and arrow placements.")
                         
-                        # Sort by Virality and take top 20
-                        top_visuals = df.sort_values(by='Virality_Score', ascending=False).head(20)
+                            # Sort by Virality and take top 20
+                            top_visuals = df.sort_values(by='Virality_Score', ascending=False).head(20)
                         
-                        if not top_visuals.empty:
-                            cols = st.columns(4) # 4 columns grid
-                            for idx, (_, row) in enumerate(top_visuals.iterrows()):
-                                with cols[idx % 4]:
-                                    st.image(row['Thumbnail_URL'], use_container_width=True)
-                                    st.caption(f"{row['Virality_Score']}x | {row['Views']} views")
+                            if not top_visuals.empty:
+                                cols = st.columns(4) # 4 columns grid
+                                for idx, (_, row) in enumerate(top_visuals.iterrows()):
+                                    with cols[idx % 4]:
+                                        st.image(row['Thumbnail_URL'], use_container_width=True)
+                                        st.caption(f"{row['Virality_Score']}x | {row['Views']} views")
 
-                        # G. AI Title Lab (NEW)
-                        st.divider()
-                        st.subheader("🧠 AI Title Lab")
-                        st.caption("Experimental: Generates viral title concepts by remixing the winning N-grams found in this search.")
+                            # G. AI Title Lab (NEW)
+                            st.divider()
+                            st.subheader("🧠 AI Title Lab")
+                            st.caption("Experimental: Generates viral title concepts by remixing the winning N-grams found in this search.")
                         
-                        if len(all_titles) > 0:
-                            # 1. Get winning starts (First 2 words)
-                            starts = [t.split()[:2] for t in df['Video_Title']]
-                            starts = [" ".join(s) for s in starts if len(s) >= 2]
-                            top_starts = [x[0] for x in Counter(starts).most_common(5)]
+                            if len(all_titles) > 0:
+                                # 1. Get winning starts (First 2 words)
+                                starts = [t.split()[:2] for t in df['Video_Title']]
+                                starts = [" ".join(s) for s in starts if len(s) >= 2]
+                                top_starts = [x[0] for x in Counter(starts).most_common(5)]
                             
-                            # 2. Get winning topics (Tags)
-                            top_tags = [x[0] for x in c_tags[:5]]
+                                # 2. Get winning topics (Tags)
+                                top_tags = [x[0] for x in c_tags[:5]]
                             
-                            # 3. Simple Remix
-                            if top_starts and top_tags:
-                                st.markdown("**Generated Concepts:**")
-                                for i in range(min(5, len(top_starts))):
-                                    import random
-                                    # Simple template logic
-                                    start = top_starts[i].title()
-                                    tag = top_tags[i % len(top_tags)].title()
+                                # 3. Simple Remix
+                                if top_starts and top_tags:
+                                    st.markdown("**Generated Concepts:**")
+                                    for i in range(min(5, len(top_starts))):
+                                        import random
+                                        # Simple template logic
+                                        start = top_starts[i].title()
+                                        tag = top_tags[i % len(top_tags)].title()
                                     
-                                    templates = [
-                                        f"{start} {tag} (Insane Results)",
-                                        f"Why {tag} is the Future of {start}",
-                                        f"I Tried {tag} for 30 Days",
-                                        f"The {tag} Mistake You're Making",
-                                        f"{start}: The Ultimate Guide to {tag}"
-                                    ]
-                                    suggestion = random.choice(templates)
-                                    st.success(f"✨ {suggestion}")
-                            else:
-                                st.warning("Not enough data to generate titles.")
+                                        templates = [
+                                            f"{start} {tag} (Insane Results)",
+                                            f"Why {tag} is the Future of {start}",
+                                            f"I Tried {tag} for 30 Days",
+                                            f"The {tag} Mistake You're Making",
+                                            f"{start}: The Ultimate Guide to {tag}"
+                                        ]
+                                        suggestion = random.choice(templates)
+                                        st.success(f"✨ {suggestion}")
+                                else:
+                                    st.warning("Not enough data to generate titles.")
 
-        except HttpError as e:
-            st.error(f"API Error: {e}")
-        except Exception as e:
-            st.error(f"System Error: {e}")
+            except HttpError as e:
+                st.error(f"API Error: {e}")
+            except Exception as e:
+                st.error(f"System Error: {e}")

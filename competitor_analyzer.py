@@ -7,6 +7,7 @@ import re
 from typing import List, Dict, Optional
 from collections import Counter
 from datetime import datetime, timedelta
+import isodate
 
 
 def get_channel_popular_videos(
@@ -607,6 +608,7 @@ def analyze_video_performance(youtube, video_id: str) -> Dict:
             "video": {
                 "title": snippet['title'],
                 "channel": snippet['channelTitle'],
+                "channel_id": channel_id,
                 "published": snippet['publishedAt'][:10],
                 "description_preview": snippet.get('description', '')[:200],
                 "tags": snippet.get('tags', [])
@@ -642,6 +644,133 @@ def analyze_title_seo(title: str) -> Dict:
         "has_question": title.endswith('?'),
         "capitalization": "Title Case" if title.istitle() else "Mixed/Other"
     }
+
+
+def analyze_title_elements(title: str) -> Dict:
+    """
+    Analyze title elements for hooks and patterns.
+    
+    Args:
+        title: Video title string
+    
+    Returns:
+        Dict with has_number, has_brackets, has_question, hook_score, etc.
+    """
+    if not title:
+        return {
+            "has_number": False,
+            "has_brackets": False,
+            "has_question": False,
+            "has_exclamation": False,
+            "has_caps_word": False,
+            "hook_score": 0,
+            "word_count": 0,
+            "char_count": 0
+        }
+    
+    # Detect patterns
+    has_number = bool(re.search(r'\d+', title))
+    has_brackets = bool(re.search(r'[\[\]\(\)]', title))
+    has_question = title.strip().endswith('?')
+    has_exclamation = '!' in title
+    has_caps_word = any(word.isupper() and len(word) > 1 for word in title.split())
+    
+    # Calculate hook score (0-100)
+    hook_score = 0
+    
+    # Numbers in titles boost engagement
+    if has_number:
+        hook_score += 20
+    
+    # Brackets/parentheses signal bonus content
+    if has_brackets:
+        hook_score += 15
+    
+    # Questions create curiosity
+    if has_question:
+        hook_score += 15
+    
+    # Exclamation adds energy
+    if has_exclamation:
+        hook_score += 10
+    
+    # CAPS word creates emphasis
+    if has_caps_word:
+        hook_score += 10
+    
+    # Power words (common hooks)
+    power_words = ['best', 'ultimate', 'secret', 'proven', 'amazing', 'shocking', 
+                   'insane', 'exposed', 'truth', 'never', 'must', 'need', 'how', 'why']
+    title_lower = title.lower()
+    power_word_count = sum(1 for pw in power_words if pw in title_lower)
+    hook_score += min(power_word_count * 5, 20)
+    
+    # Optimal length bonus (50-65 chars is ideal for YouTube)
+    title_len = len(title)
+    if 50 <= title_len <= 65:
+        hook_score += 10
+    elif 40 <= title_len <= 70:
+        hook_score += 5
+    
+    return {
+        "has_number": has_number,
+        "has_brackets": has_brackets,
+        "has_question": has_question,
+        "has_exclamation": has_exclamation,
+        "has_caps_word": has_caps_word,
+        "hook_score": min(hook_score, 100),  # Cap at 100
+        "word_count": len(title.split()),
+        "char_count": len(title),
+        "power_words_found": power_word_count
+    }
+
+
+def parse_duration(duration_str: str) -> int:
+    """
+    Parse ISO 8601 duration string to seconds.
+    
+    Args:
+        duration_str: ISO 8601 duration like "PT1H30M15S"
+    
+    Returns:
+        Duration in seconds
+    """
+    if not duration_str:
+        return 0
+    
+    try:
+        duration = isodate.parse_duration(duration_str)
+        return int(duration.total_seconds())
+    except:
+        # Fallback manual parsing
+        seconds = 0
+        
+        # Remove 'PT' prefix
+        duration_str = duration_str.upper()
+        if duration_str.startswith('PT'):
+            duration_str = duration_str[2:]
+        elif duration_str.startswith('P'):
+            duration_str = duration_str[1:]
+        
+        # Parse hours
+        if 'H' in duration_str:
+            h_match = re.search(r'(\d+)H', duration_str)
+            if h_match:
+                seconds += int(h_match.group(1)) * 3600
+        
+        # Parse minutes
+        if 'M' in duration_str:
+            m_match = re.search(r'(\d+)M', duration_str)
+            if m_match:
+                seconds += int(m_match.group(1)) * 60
+        
+        # Parse seconds
+        if 'S' in duration_str:
+            s_match = re.search(r'(\d+)S', duration_str)
+            if s_match:
+                seconds += int(s_match.group(1))
+        
+        return seconds
 
 
 def get_channel_id_from_handle(youtube, handle: str) -> Optional[str]:

@@ -417,27 +417,140 @@ def get_competitor_tags(youtube, keyword: str) -> List[str]:
 # Legacy functions for backwards compatibility
 def calculate_seo_score(title, description, tags, target_keyword="", additional_keywords=None):
     """Legacy function - returns basic score without API comparison."""
-    from seo_analyzer_legacy import calculate_seo_score as legacy_score
-    return legacy_score(title, description, tags, target_keyword, additional_keywords)
+    score = 0
+    components = {}
+    
+    # Title score (30%)
+    title_score = 0
+    if target_keyword and target_keyword.lower() in title.lower():
+        title_score += 20
+        first_words = ' '.join(title.lower().split()[:5])
+        if target_keyword.lower() in first_words:
+            title_score += 10
+    if re.search(r'\d+', title):
+        title_score += 10
+    if re.search(r'[\[\]\(\)]', title):
+        title_score += 5
+    if 40 <= len(title) <= 70:
+        title_score += 5
+    components['title'] = min(title_score, 50)
+    score += components['title'] * 0.3
+    
+    # Description score (30%)
+    desc_score = 0
+    desc_words = len(description.split()) if description else 0
+    if desc_words >= 150:
+        desc_score += 30
+    elif desc_words >= 100:
+        desc_score += 20
+    elif desc_words >= 50:
+        desc_score += 10
+    if target_keyword and target_keyword.lower() in description.lower():
+        desc_score += 20
+    components['description'] = min(desc_score, 50)
+    score += components['description'] * 0.3
+    
+    # Tags score (40%)
+    tags_score = 0
+    if tags:
+        tags_score += min(len(tags) * 3, 30)
+        if target_keyword:
+            if any(target_keyword.lower() in t.lower() for t in tags):
+                tags_score += 20
+    components['tags'] = min(tags_score, 50)
+    score += components['tags'] * 0.4
+    
+    overall_score = int(min(score, 100))
+    
+    # Determine grade
+    if overall_score >= 80:
+        grade = "A"
+    elif overall_score >= 60:
+        grade = "B"
+    elif overall_score >= 40:
+        grade = "C"
+    elif overall_score >= 20:
+        grade = "D"
+    else:
+        grade = "F"
+    
+    return {
+        "overall_score": overall_score,
+        "grade": grade,
+        "components": components
+    }
 
 
 def analyze_title(title, target_keyword=""):
     """Legacy function for basic title analysis."""
-    score = 50
+    score = 0
+    breakdown = {}
     suggestions = []
     
+    # Keyword presence (30 points)
     if target_keyword and target_keyword.lower() in title.lower():
-        score += 20
-    
-    if re.search(r'\d+', title):
-        score += 10
-    
-    if 40 <= len(title) <= 60:
-        score += 10
+        score += 30
+        first_words = ' '.join(title.lower().split()[:5])
+        if target_keyword.lower() in first_words:
+            breakdown['keyword'] = {"score": 30, "status": "✅ Keyword in first 5 words"}
+        else:
+            breakdown['keyword'] = {"score": 20, "status": "⚠️ Keyword present but not near start"}
+            score -= 10
     else:
-        suggestions.append(f"Adjust title length (currently {len(title)} chars, ideal is 40-60)")
+        breakdown['keyword'] = {"score": 0, "status": "❌ Target keyword not in title"}
+        if target_keyword:
+            suggestions.append(f"Add '{target_keyword}' to the title")
     
-    return {"score": min(score, 100), "suggestions": suggestions}
+    # Number presence (15 points)
+    if re.search(r'\d+', title):
+        score += 15
+        breakdown['number'] = {"score": 15, "status": "✅ Contains number"}
+    else:
+        breakdown['number'] = {"score": 0, "status": "ℹ️ No number in title"}
+        suggestions.append("Consider adding a number (e.g., '5 Tips', 'Top 10')")
+    
+    # Brackets/parentheses (10 points)
+    if re.search(r'[\[\]\(\)]', title):
+        score += 10
+        breakdown['brackets'] = {"score": 10, "status": "✅ Uses brackets"}
+    else:
+        breakdown['brackets'] = {"score": 0, "status": "ℹ️ No brackets"}
+    
+    # Length (20 points)
+    title_len = len(title)
+    if 40 <= title_len <= 60:
+        score += 20
+        breakdown['length'] = {"score": 20, "status": f"✅ Ideal length ({title_len} chars)"}
+    elif 30 <= title_len <= 70:
+        score += 10
+        breakdown['length'] = {"score": 10, "status": f"⚠️ Acceptable length ({title_len} chars)"}
+        suggestions.append("Aim for 40-60 characters for optimal display")
+    else:
+        breakdown['length'] = {"score": 0, "status": f"❌ Poor length ({title_len} chars)"}
+        suggestions.append(f"Adjust title length (currently {title_len} chars, ideal is 40-60)")
+    
+    # Power words (15 points)
+    power_words = ["best", "ultimate", "how to", "guide", "tutorial", "top", "secret", "amazing"]
+    title_lower = title.lower()
+    has_power_word = any(pw in title_lower for pw in power_words)
+    if has_power_word:
+        score += 15
+        breakdown['power_words'] = {"score": 15, "status": "✅ Contains power word"}
+    else:
+        breakdown['power_words'] = {"score": 0, "status": "ℹ️ No power words detected"}
+    
+    # Emotional hook (10 points)
+    if title.endswith('?') or title.endswith('!'):
+        score += 10
+        breakdown['hook'] = {"score": 10, "status": "✅ Has emotional hook"}
+    else:
+        breakdown['hook'] = {"score": 0, "status": "ℹ️ No question/exclamation"}
+    
+    return {
+        "score": min(score, 100),
+        "breakdown": breakdown,
+        "suggestions": suggestions
+    }
 
 
 def generate_tag_suggestions(title, description, existing_tags=None):
@@ -451,3 +564,4 @@ def generate_tag_suggestions(title, description, existing_tags=None):
     
     word_freq = Counter(words)
     return [w for w, _ in word_freq.most_common(10)]
+

@@ -597,3 +597,252 @@ def get_video_ideas_from_trends(youtube, niche: str, days_back: int = 30) -> Dic
         
     except Exception as e:
         return {"error": str(e)}
+
+
+# ===================== LEGACY FUNCTIONS FOR BACKWARDS COMPATIBILITY =====================
+
+def generate_titles(topic: str, style: str = "how_to", count: int = 5) -> List[Dict]:
+    """
+    Legacy function - Generate title suggestions without API.
+    
+    Args:
+        topic: Topic to generate titles for
+        style: Title style (how_to, listicle, review, etc.)
+        count: Number of titles to generate
+    
+    Returns:
+        List of dicts with title and ctr_score
+    """
+    templates = {
+        "how_to": [
+            f"How to {topic.title()} - Complete Beginner Guide",
+            f"How to {topic.title()} Like a Pro in 2025",
+            f"How to {topic.title()} (Step-by-Step Tutorial)",
+            f"How to {topic.title()} - Everything You Need to Know",
+            f"How to {topic.title()} the RIGHT Way",
+            f"How to {topic.title()} Fast and Easy",
+            f"How to {topic.title()} Without Experience"
+        ],
+        "listicle": [
+            f"10 Best {topic.title()} Tips You Need to Know",
+            f"5 {topic.title()} Mistakes Everyone Makes",
+            f"7 {topic.title()} Secrets Nobody Tells You",
+            f"Top 10 {topic.title()} for Beginners",
+            f"15 {topic.title()} Hacks That Actually Work",
+            f"3 {topic.title()} Tricks That Changed My Life",
+            f"20 {topic.title()} Ideas for 2025"
+        ],
+        "review": [
+            f"{topic.title()} Review - Is It Worth It?",
+            f"Honest {topic.title()} Review (No BS)",
+            f"I Tried {topic.title()} for 30 Days - Here's What Happened",
+            f"{topic.title()} Review - Before You Buy",
+            f"The Truth About {topic.title()} (Full Review)",
+            f"{topic.title()} - Best or Worst? Honest Review",
+            f"My {topic.title()} Experience - Complete Review"
+        ],
+        "comparison": [
+            f"{topic.title()} vs The Competition - Which Is Best?",
+            f"Best {topic.title()} Compared (2025)",
+            f"{topic.title()} Showdown - Ultimate Comparison",
+            f"Which {topic.title()} Should You Choose?",
+            f"{topic.title()} Comparison You Need to See",
+            f"Top 5 {topic.title()} Compared Side by Side",
+            f"{topic.title()} Battle - Who Wins?"
+        ]
+    }
+    
+    # Get templates for the style, default to how_to
+    style_templates = templates.get(style, templates["how_to"])
+    
+    results = []
+    import random
+    
+    # Calculate pseudo CTR scores based on patterns
+    for template in style_templates[:count]:
+        ctr_score = 50  # Base score
+        
+        # Boost for numbers
+        if any(char.isdigit() for char in template):
+            ctr_score += 15
+        
+        # Boost for brackets
+        if '(' in template or '[' in template:
+            ctr_score += 10
+        
+        # Boost for power words
+        power_words = ['best', 'ultimate', 'secret', 'truth', 'honest', 'complete', 'pro']
+        if any(pw in template.lower() for pw in power_words):
+            ctr_score += 10
+        
+        # Boost for year
+        if '2025' in template:
+            ctr_score += 5
+        
+        # Boost for questions
+        if '?' in template:
+            ctr_score += 5
+        
+        # Add some randomness
+        ctr_score += random.randint(-5, 10)
+        
+        results.append({
+            "title": template,
+            "ctr_score": min(ctr_score, 100)
+        })
+    
+    return results
+
+
+def generate_description(
+    title: str,
+    keywords: List[str],
+    video_length_minutes: int = 10,
+    niche: str = ""
+) -> Dict:
+    """
+    Legacy function - Generate video description without API.
+    
+    Args:
+        title: Video title
+        keywords: List of keywords to include
+        video_length_minutes: Video length in minutes
+        niche: Video niche/category
+    
+    Returns:
+        Dict with description and word_count
+    """
+    # Build description parts
+    parts = []
+    
+    # Hook (SEO-optimized first line)
+    keyword_str = keywords[0] if keywords else title
+    parts.append(f"🎯 Learn everything about {keyword_str} in this comprehensive guide!")
+    parts.append(f"This is the most complete {keyword_str} tutorial you'll find on YouTube in 2025.")
+    parts.append("")
+    
+    # Body
+    parts.append(f"In this {video_length_minutes}-minute video, we dive deep into {title.lower()}.")
+    if niche:
+        parts.append(f"Whether you're new to {niche} or looking to level up, this video is for you.")
+    parts.append(f"By the end of this video, you'll have a complete understanding of {keyword_str}.")
+    parts.append("")
+    
+    # What You'll Learn
+    parts.append("📚 WHAT YOU'LL LEARN:")
+    parts.append(f"• Complete beginner-friendly introduction to {keyword_str}")
+    parts.append("• Step-by-step walkthrough of all key concepts")
+    parts.append("• Pro tips and best practices from experts")
+    parts.append("• Common mistakes to avoid")
+    parts.append("")
+    
+    # Timestamps
+    parts.append("⏰ TIMESTAMPS:")
+    parts.append("0:00 - Introduction")
+    if video_length_minutes > 5:
+        parts.append("1:00 - Getting Started")
+        parts.append(f"{video_length_minutes // 3}:00 - Main Content")
+        parts.append(f"{video_length_minutes * 2 // 3}:00 - Advanced Tips")
+    parts.append(f"{video_length_minutes - 1}:00 - Conclusion")
+    parts.append("")
+    
+    # Keywords naturally embedded
+    if keywords:
+        parts.append("📝 Topics Covered:")
+        for kw in keywords[:5]:
+            parts.append(f"• {kw.title()}")
+    parts.append("")
+    
+    # CTA
+    parts.append("📌 Don't forget to:")
+    parts.append("👍 LIKE this video if you found it helpful")
+    parts.append("💬 COMMENT any questions below")
+    parts.append("🔔 SUBSCRIBE for more content")
+    parts.append("🔔 Hit the notification bell to never miss an upload")
+    parts.append("")
+    
+    # Links placeholder
+    parts.append("🔗 RESOURCES:")
+    parts.append("• [Link 1]")
+    parts.append("• [Link 2]")
+    parts.append("• [Link 3]")
+    parts.append("")
+    
+    # Hashtags
+    if keywords:
+        hashtags = [f"#{kw.replace(' ', '')}" for kw in keywords[:3]]
+        parts.append(" ".join(hashtags))
+    
+    description = "\n".join(parts)
+    
+    return {
+        "description": description,
+        "word_count": len(description.split())
+    }
+
+
+def generate_tags(
+    title: str,
+    description: str = "",
+    base_keywords: List[str] = None
+) -> Dict:
+    """
+    Legacy function - Generate video tags without API.
+    
+    Args:
+        title: Video title
+        description: Video description
+        base_keywords: Base keywords to include
+    
+    Returns:
+        Dict with tags list
+    """
+    import re
+    
+    tags = set()
+    
+    # Add base keywords first
+    if base_keywords:
+        for kw in base_keywords:
+            tags.add(kw.lower())
+            # Add variations
+            tags.add(kw.lower().replace(" ", ""))
+            words = kw.split()
+            if len(words) > 1:
+                tags.add(words[0].lower())
+    
+    # Extract from title
+    title_words = re.findall(r'\b[a-zA-Z]{4,}\b', title.lower())
+    stop_words = {"this", "that", "with", "from", "have", "been", "will", "your", "what", "when", "where", "which", "there", "their", "about"}
+    
+    for word in title_words:
+        if word not in stop_words:
+            tags.add(word)
+    
+    # Extract from description
+    if description:
+        desc_words = re.findall(r'\b[a-zA-Z]{4,}\b', description.lower())
+        word_freq = {}
+        for word in desc_words:
+            if word not in stop_words:
+                word_freq[word] = word_freq.get(word, 0) + 1
+        
+        # Add most frequent words
+        sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
+        for word, _ in sorted_words[:10]:
+            tags.add(word)
+    
+    # Add common YouTube tags
+    common_tags = ["tutorial", "guide", "howto", "tips", "2025", "best"]
+    for tag in common_tags:
+        if tag in title.lower() or (description and tag in description.lower()):
+            tags.add(tag)
+    
+    # Convert to sorted list
+    tag_list = sorted(list(tags))[:30]  # YouTube allows max 500 chars, ~30 tags is safe
+    
+    return {
+        "tags": tag_list,
+        "count": len(tag_list)
+    }
+

@@ -457,3 +457,104 @@ def analyze_keyword_trend(youtube, keyword: str) -> Dict:
         
     except Exception as e:
         return {"error": str(e), "trend": "Unknown", "status": "unknown"}
+
+
+# ===================== LEGACY FUNCTIONS FOR BACKWARDS COMPATIBILITY =====================
+
+def generate_related_keywords(keyword: str, limit: int = 10) -> List[Dict]:
+    """
+    Legacy function - Generate related keywords without API.
+    
+    Args:
+        keyword: Base keyword
+        limit: Max number of keywords to return
+    
+    Returns:
+        List of dicts with keyword and type
+    """
+    results = []
+    keyword_lower = keyword.lower()
+    
+    # Modifier-based variations
+    modifiers = {
+        "prefix": ["best", "top", "how to", "what is", "free", "cheap", "easy", "beginner"],
+        "suffix": ["tutorial", "guide", "tips", "review", "for beginners", "2025", "explained"],
+        "question": ["how", "what", "why", "when", "where"]
+    }
+    
+    # Generate prefix variations
+    for prefix in modifiers["prefix"]:
+        if len(results) >= limit:
+            break
+        results.append({
+            "keyword": f"{prefix} {keyword_lower}",
+            "type": "modifier"
+        })
+    
+    # Generate suffix variations
+    for suffix in modifiers["suffix"]:
+        if len(results) >= limit:
+            break
+        results.append({
+            "keyword": f"{keyword_lower} {suffix}",
+            "type": "long_tail"
+        })
+    
+    # Generate question variations
+    for q in modifiers["question"]:
+        if len(results) >= limit:
+            break
+        if q == "how":
+            results.append({"keyword": f"how to {keyword_lower}", "type": "question"})
+        elif q == "what":
+            results.append({"keyword": f"what is {keyword_lower}", "type": "question"})
+        elif q == "why":
+            results.append({"keyword": f"why {keyword_lower}", "type": "question"})
+    
+    return results[:limit]
+
+
+def extract_keywords_from_text(text: str, top_n: int = 10) -> List[Dict]:
+    """
+    Legacy function - Extract keywords from text.
+    
+    Args:
+        text: Text to analyze
+        top_n: Number of top keywords to return
+    
+    Returns:
+        List of dicts with keyword and frequency
+    """
+    import re
+    
+    # Extract words
+    words = re.findall(r'\b[a-zA-Z]{4,}\b', text.lower())
+    
+    # Remove stop words
+    stop_words = {
+        "this", "that", "with", "from", "have", "been", "will", "your",
+        "what", "when", "where", "which", "there", "their", "about",
+        "would", "could", "should", "just", "like", "more", "also",
+        "some", "than", "then", "only", "most", "each", "into"
+    }
+    
+    filtered_words = [w for w in words if w not in stop_words]
+    
+    # Count frequencies
+    word_freq = {}
+    for word in filtered_words:
+        word_freq[word] = word_freq.get(word, 0) + 1
+    
+    # Sort by frequency
+    sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
+    
+    # Format output
+    results = []
+    for word, freq in sorted_words[:top_n]:
+        results.append({
+            "keyword": word,
+            "frequency": freq
+        })
+    
+    return results
+
