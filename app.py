@@ -1133,10 +1133,37 @@ with toolbox_tabs[4]:
                                             
                                             if videos:
                                                 # Create DataFrame for display with ALL research engine columns
+                                                st.info(f"📝 Extracting transcripts for {len(videos)} videos... This may take a moment.")
                                                 display_data = []
+                                                progress_bar = st.progress(0)
+                                                
                                                 for i, v in enumerate(videos, 1):
+                                                    # Update progress
+                                                    progress_bar.progress(i / len(videos))
+                                                    
                                                     # Format tags as comma-separated string
                                                     tags_str = ", ".join(v.get('tags', []))
+                                                    
+                                                    # Extract transcript for this video
+                                                    transcript_text = "N/A"
+                                                    try:
+                                                        raw_transcript = get_video_transcript(v['video_id'])
+                                                        if isinstance(raw_transcript, list) and raw_transcript:
+                                                            text_parts = []
+                                                            for segment in raw_transcript:
+                                                                if isinstance(segment, dict):
+                                                                    text_parts.append(segment.get('text', ''))
+                                                                elif hasattr(segment, 'text'):
+                                                                    text_parts.append(str(segment.text))
+                                                                else:
+                                                                    text_parts.append(str(segment))
+                                                            full_text = ' '.join(text_parts).replace('\n', ' ')
+                                                            # Truncate for display
+                                                            transcript_text = full_text[:300] + "..." if len(full_text) > 300 else full_text
+                                                        elif isinstance(raw_transcript, str):
+                                                            transcript_text = raw_transcript
+                                                    except Exception as e:
+                                                        transcript_text = f"Error: {str(e)[:50]}"
                                                     
                                                     display_data.append({
                                                         "Rank": i,
@@ -1149,9 +1176,11 @@ with toolbox_tabs[4]:
                                                         "Video_Topics": v.get('video_topics', 'N/A'),
                                                         "Background_Music": v.get('background_music', 'None Detected'),
                                                         "Tags": tags_str if tags_str else 'N/A',
-                                                        "Description": v.get('description', '')[:200] + "..." if len(v.get('description', '')) > 200 else v.get('description', 'N/A')
+                                                        "Description": v.get('description', '')[:200] + "..." if len(v.get('description', '')) > 200 else v.get('description', 'N/A'),
+                                                        "Transcript": transcript_text
                                                     })
                                                 
+                                                progress_bar.empty()
                                                 videos_df = pd.DataFrame(display_data)
                                                 st.dataframe(videos_df, use_container_width=True, hide_index=True)
                                                 
@@ -1411,10 +1440,37 @@ with toolbox_tabs[4]:
                                     
                                     # Create DataFrame for display with ALL research engine columns
                                     if videos:
+                                        st.info(f"📝 Extracting transcripts for {len(videos)} videos... This may take a moment.")
                                         display_data = []
+                                        progress_bar = st.progress(0)
+                                        
                                         for i, v in enumerate(videos, 1):
+                                            # Update progress
+                                            progress_bar.progress(i / len(videos))
+                                            
                                             # Format tags as comma-separated string
                                             tags_str = ", ".join(v.get('tags', []))
+                                            
+                                            # Extract transcript for this video
+                                            transcript_text = "N/A"
+                                            try:
+                                                raw_transcript = get_video_transcript(v['video_id'])
+                                                if isinstance(raw_transcript, list) and raw_transcript:
+                                                    text_parts = []
+                                                    for segment in raw_transcript:
+                                                        if isinstance(segment, dict):
+                                                            text_parts.append(segment.get('text', ''))
+                                                        elif hasattr(segment, 'text'):
+                                                            text_parts.append(str(segment.text))
+                                                        else:
+                                                            text_parts.append(str(segment))
+                                                    full_text = ' '.join(text_parts).replace('\n', ' ')
+                                                    # Truncate for display
+                                                    transcript_text = full_text[:300] + "..." if len(full_text) > 300 else full_text
+                                                elif isinstance(raw_transcript, str):
+                                                    transcript_text = raw_transcript
+                                            except Exception as e:
+                                                transcript_text = f"Error: {str(e)[:50]}"
                                             
                                             display_data.append({
                                                 "Rank": i,
@@ -1428,9 +1484,11 @@ with toolbox_tabs[4]:
                                                 "Background_Music": v.get('background_music', 'None Detected'),
                                                 "Tags": tags_str if tags_str else 'N/A',
                                                 "Description": v.get('description', '')[:200] + "..." if len(v.get('description', '')) > 200 else v.get('description', 'N/A'),
+                                                "Transcript": transcript_text,
                                                 "Video_ID": v['video_id']
                                             })
                                         
+                                        progress_bar.empty()
                                         videos_df = pd.DataFrame(display_data)
                                         st.dataframe(videos_df, use_container_width=True, hide_index=True)
                                         
@@ -1533,7 +1591,6 @@ with toolbox_tabs[0]:
                         'type': 'video', 
                         'safeSearch': safe_search,
                         'videoType': video_type_val if video_type_val != 'any' else None,
-                        'videoDuration': video_duration_val if video_duration_val != 'any' else None,
                         'videoDuration': video_duration_val if video_duration_val != 'any' else None,
                         'videoLicense': 'creativeCommon' if creative_commons else None,
                         'videoCategoryId': video_category_id
@@ -1648,6 +1705,24 @@ with toolbox_tabs[0]:
                         duration_iso = content.get('duration', 'PT0S')
                         duration_seconds = isodate.parse_duration(duration_iso).total_seconds()
                         duration_minutes = round(duration_seconds / 60, 2)
+
+                        # --- Duration Post-Processing Filter (for Channel Deep Dive) ---
+                        # YouTube API duration filter only works for keyword search, not playlist
+                        # So we apply it here for Channel Deep Dive mode
+                        if video_duration and 'any' not in video_duration:
+                            passes_duration = False
+                            for dur_filter in video_duration:
+                                if dur_filter == 'short' and duration_minutes <= 4:
+                                    passes_duration = True
+                                    break
+                                elif dur_filter == 'medium' and 4 < duration_minutes <= 20:
+                                    passes_duration = True
+                                    break
+                                elif dur_filter == 'long' and duration_minutes > 20:
+                                    passes_duration = True
+                                    break
+                            if not passes_duration:
+                                continue
 
                         # Extra Context
                         video_topics = ", ".join([t.split('/')[-1] for t in topic_details.get('topicCategories', [])])
