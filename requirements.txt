@@ -1,0 +1,12 @@
+streamlit
+pandas
+google-api-python-client
+youtube-transcript-api
+easyocr
+pillow
+numpy
+requests
+opencv-python-headless
+isodate
+pytest
+streamlit-local-storage
