@@ -10,6 +10,25 @@ from datetime import datetime, timedelta
 import isodate
 
 
+def detect_music_from_description(description):
+    """Heuristic to find music credits in description."""
+    if not description:
+        return "None Detected"
+    
+    music_lines = []
+    lines = description.split('\n')
+    keywords = ["Music:", "Song:", "Track:", "Music by:", "BGM:", "Background Music:"]
+    
+    for line in lines:
+        for kw in keywords:
+            if kw.lower() in line.lower():
+                clean_line = line.strip()
+                if len(clean_line) < 100: 
+                    music_lines.append(clean_line)
+                break
+    
+    return " | ".join(music_lines) if music_lines else "None Detected"
+
 def get_channel_popular_videos(
     youtube,
     channel_id: str,
@@ -86,15 +105,17 @@ def get_channel_popular_videos(
             # Get video IDs
             video_ids = [item['contentDetails']['videoId'] for item in items]
             
-            # Get video statistics
+            # Get video statistics with topicDetails for richer data
             videos_response = youtube.videos().list(
-                part='statistics,snippet,contentDetails',
+                part='statistics,snippet,contentDetails,topicDetails',
                 id=','.join(video_ids)
             ).execute()
             
             for video in videos_response.get('items', []):
                 v_stats = video.get('statistics', {})
                 v_snippet = video['snippet']
+                v_content = video.get('contentDetails', {})
+                v_topics = video.get('topicDetails', {})
                 published_str = v_snippet['publishedAt']
                 
                 # Parse published date
@@ -114,6 +135,24 @@ def get_channel_popular_videos(
                 
                 engagement_rate = ((likes + comments) / views * 100) if views > 0 else 0
                 
+                # Parse duration
+                duration_iso = v_content.get('duration', 'PT0S')
+                try:
+                    duration_seconds = isodate.parse_duration(duration_iso).total_seconds()
+                    duration_minutes = round(duration_seconds / 60, 2)
+                except:
+                    duration_minutes = 0
+                
+                # Extract video topics
+                video_topics = ", ".join([t.split('/')[-1] for t in v_topics.get('topicCategories', [])])
+                
+                # Get description and detect music
+                description = v_snippet.get('description', '')
+                background_music = detect_music_from_description(description)
+                
+                # Get all tags (not limited)
+                all_tags = v_snippet.get('tags', [])
+                
                 all_videos.append({
                     'title': v_snippet['title'],
                     'video_id': video['id'],
@@ -123,8 +162,13 @@ def get_channel_popular_videos(
                     'comments': comments,
                     'engagement_rate': round(engagement_rate, 2),
                     'published': published_str[:10],
-                    'thumbnail': v_snippet.get('thumbnails', {}).get('medium', {}).get('url', ''),
-                    'tags': v_snippet.get('tags', [])[:10]  # First 10 tags
+                    'thumbnail': v_snippet.get('thumbnails', {}).get('high', v_snippet.get('thumbnails', {}).get('medium', {})).get('url', ''),
+                    'tags': all_tags,
+                    # Additional fields to match Research Engine
+                    'duration_minutes': duration_minutes,
+                    'video_topics': video_topics if video_topics else 'N/A',
+                    'description': description,
+                    'background_music': background_music
                 })
             
             fetched += len(items)

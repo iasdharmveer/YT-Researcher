@@ -1085,16 +1085,24 @@ with toolbox_tabs[4]:
                                             videos = popular_result.get("videos", [])
                                             
                                             if videos:
-                                                # Create DataFrame for display
+                                                # Create DataFrame for display with ALL research engine columns
                                                 display_data = []
                                                 for i, v in enumerate(videos, 1):
+                                                    # Format tags as comma-separated string
+                                                    tags_str = ", ".join(v.get('tags', []))
+                                                    
                                                     display_data.append({
                                                         "Rank": i,
                                                         "Title": v['title'][:50] + "..." if len(v['title']) > 50 else v['title'],
                                                         "Views": f"{v['views']:,}",
                                                         "Likes": f"{v['likes']:,}",
                                                         "Engagement": f"{v['engagement_rate']}%",
-                                                        "Published": v['published'][:10] if v.get('published') else "N/A"
+                                                        "Published": v['published'][:10] if v.get('published') else "N/A",
+                                                        "Duration_Minutes": v.get('duration_minutes', 0),
+                                                        "Video_Topics": v.get('video_topics', 'N/A'),
+                                                        "Background_Music": v.get('background_music', 'None Detected'),
+                                                        "Tags": tags_str if tags_str else 'N/A',
+                                                        "Description": v.get('description', '')[:200] + "..." if len(v.get('description', '')) > 200 else v.get('description', 'N/A')
                                                     })
                                                 
                                                 videos_df = pd.DataFrame(display_data)
@@ -1354,10 +1362,13 @@ with toolbox_tabs[4]:
                                     
                                     videos = result.get("videos", [])
                                     
-                                    # Create DataFrame for display
+                                    # Create DataFrame for display with ALL research engine columns
                                     if videos:
                                         display_data = []
                                         for i, v in enumerate(videos, 1):
+                                            # Format tags as comma-separated string
+                                            tags_str = ", ".join(v.get('tags', []))
+                                            
                                             display_data.append({
                                                 "Rank": i,
                                                 "Title": v['title'][:60] + "..." if len(v['title']) > 60 else v['title'],
@@ -1365,7 +1376,12 @@ with toolbox_tabs[4]:
                                                 "Likes": f"{v['likes']:,}",
                                                 "Engagement": f"{v['engagement_rate']}%",
                                                 "Published": v['published'],
-                                                "Video ID": v['video_id']
+                                                "Duration_Minutes": v.get('duration_minutes', 0),
+                                                "Video_Topics": v.get('video_topics', 'N/A'),
+                                                "Background_Music": v.get('background_music', 'None Detected'),
+                                                "Tags": tags_str if tags_str else 'N/A',
+                                                "Description": v.get('description', '')[:200] + "..." if len(v.get('description', '')) > 200 else v.get('description', 'N/A'),
+                                                "Video_ID": v['video_id']
                                             })
                                         
                                         videos_df = pd.DataFrame(display_data)
