@@ -153,8 +153,9 @@ def get_api_key():
     Securely get API key from multiple sources (in priority order):
     1. Session state (user input in sidebar)
     2. Browser localStorage (persistent across sessions for each user)
-    3. Streamlit secrets (for cloud deployment fallback)
-    4. Environment variable (for local development)
+    3. Local file (.api_key) - fallback for localStorage issues
+    4. Streamlit secrets (for cloud deployment fallback)
+    5. Environment variable (for local development)
     """
     # First check session state (user entered in UI)
     if st.session_state.get('api_key'):
@@ -164,7 +165,19 @@ def get_api_key():
     try:
         stored_key = local_storage.getItem("youtube_api_key")
         if stored_key:
+            st.session_state['api_key'] = stored_key
             return stored_key
+    except:
+        pass
+    
+    # Then check local file (fallback for localStorage async issues)
+    try:
+        if os.path.exists('.api_key'):
+            with open('.api_key', 'r') as f:
+                file_key = f.read().strip()
+                if file_key:
+                    st.session_state['api_key'] = file_key
+                    return file_key
     except:
         pass
     
@@ -183,20 +196,48 @@ def get_api_key():
     return ''
 
 def save_api_key_to_storage(key: str):
-    """Save API key to browser localStorage for persistence."""
+    """Save API key to browser localStorage and local file for persistence."""
+    success = False
+    # Try localStorage first
     try:
         local_storage.setItem("youtube_api_key", key)
-        return True
+        success = True
     except:
-        return False
+        pass
+    
+    # Also save to file as fallback (for same-machine persistence)
+    try:
+        with open('.api_key', 'w') as f:
+            f.write(key)
+        success = True
+    except:
+        pass
+    
+    # Always update session state
+    st.session_state['api_key'] = key
+    return success
 
 def clear_api_key_from_storage():
-    """Remove API key from browser localStorage."""
+    """Remove API key from browser localStorage and local file."""
+    success = False
     try:
         local_storage.deleteItem("youtube_api_key")
-        return True
+        success = True
     except:
-        return False
+        pass
+    
+    # Also remove from file
+    try:
+        if os.path.exists('.api_key'):
+            os.remove('.api_key')
+        success = True
+    except:
+        pass
+    
+    # Clear session state
+    if 'api_key' in st.session_state:
+        del st.session_state['api_key']
+    return success
 
 # --- Shared YouTube API Helper (DRY) ---
 @st.cache_resource

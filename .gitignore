@@ -2,6 +2,7 @@
 
 # Ignore sensitive configuration
 dashboard_config.json
+.api_key
 
 # Streamlit secrets
 .streamlit/secrets.toml
